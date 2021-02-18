@@ -1,3 +1,4 @@
 from .api import *
 
-__version__ = '0.0.1'
+# keep this always at the "next to be released" version
+__version__ = '0.0.2'

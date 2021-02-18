@@ -1,6 +1,5 @@
 
 from dataclasses import dataclass
-import io
 import json
 
 from typing import IO, Any, Dict, List, Optional, Union
@@ -38,12 +37,14 @@ class BaseInstruction:
 class From(BaseInstruction):
     image_tag: str
     platform: Optional[str]
+    as_: Optional[str]
     def write(self, fp: IO[str]):
         parts = ['FROM']
         if self.platform is not None:
             parts.append(f'--platform={self.platform}')
         parts.append(self.image_tag)
-        # TODO 'as'
+        if self.as_ is not None:
+            parts.append(f'AS {self.as_}')
         fp.write(' '.join(parts) + '\n')
 
 @dataclass
@@ -74,12 +75,14 @@ class Copy(BaseInstruction):
     source: Union[str, List[str]]
     dest: str
     chown: Optional[str]
+    from_: Optional[str]
     def write(self, fp: IO[str]):
         chown = f'--chown={self.chown} ' if self.chown is not None else ''
+        from_ = f'--from={self.from_} ' if self.from_ is not None else ''
         if isinstance(self.source, list):
-            fp.write(f'COPY {chown}{" ".join(_quote(s) for s in self.source)} {_quote(self.dest)}\n')
+            fp.write(f'COPY {from_}{chown}{" ".join(_quote(s) for s in self.source)} {_quote(self.dest)}\n')
         else:
-            fp.write(f'COPY {chown}{_quote(self.source)} {_quote(self.dest)}\n')
+            fp.write(f'COPY {from_}{chown}{_quote(self.source)} {_quote(self.dest)}\n')
 
 @dataclass
 class Workdir(BaseInstruction):
@@ -91,12 +94,16 @@ class Gen:
     def __init__(self):
         self._instrs = []
 
-    def from_(self, image_tag: str, platform: Optional[str] = None):
+    def from_(self, image_tag: str, platform: Optional[str] = None, as_: Optional[str] = None):
         '''The FROM instruction initializes a new build stage and sets the
         Base Image for subsequent instructions. As such, a valid Dockerfile
-        must start with a FROM instruction
+        must start with a FROM instruction.
+
+        Args:
+            image_tag: Docker base image name and tag
+            as_: Stage name for multi-stage builds
         '''
-        self._instrs.append(From(image_tag, platform))
+        self._instrs.append(From(image_tag, platform, as_))
 
     def label(self, **args):
         self._instrs.append(Label(dict(**args)))
@@ -104,7 +111,7 @@ class Gen:
     def env(self, **args):
         self._instrs.append(Env(dict(**args)))
 
-    def run(self, commands: Union[List[str], str], shell=True):
+    def run(self, commands: Union[List[str], str], shell: bool = True):
         if not shell:
             # RUN 'exec' form requires a list
             assert isinstance(commands, list)
@@ -120,8 +127,8 @@ class Gen:
         '''RUN command but use an explicit list to perform an exec invocation without shell'''
         raise NotImplemented
 
-    def copy(self, source: Union[List[str], str], dest: str, chown: Optional[str] = None):
-        self._instrs.append(Copy(source, dest, chown))
+    def copy(self, source: Union[List[str], str], dest: str, chown: Optional[str] = None, from_: Optional[str] = None):
+        self._instrs.append(Copy(source, dest, chown, from_))
 
     def workdir(self, workdir: str):
         self._instrs.append(Workdir(workdir))
