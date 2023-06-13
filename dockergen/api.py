@@ -62,13 +62,32 @@ class Env(BaseInstruction):
         fp.write(f'ENV {" ".join(kvs)}\n')
 
 @dataclass
+class Mount:
+    from_: Optional[str]
+    source: Optional[str]
+    target: Optional[str]
+    type_: str = 'bind'
+
+    def to_string(self) -> str:
+        assert self.type_ == 'bind' # only bind supported for now
+        return f'--mount=type={self.type_},from={self.from_},source={self.source},target={self.target}'
+
+@dataclass
 class Run(BaseInstruction):
     commands: Union[str, List[str]]
+    mount: Union[List[Mount], Optional[Mount]]
     def write(self, fp: IO[str]):
+        mount = ''
+        if self.mount is not None:
+            if isinstance(self.mount, list):
+                mount = ' '.join([x.to_string() for x in self.mount])
+            else:
+                mount = f'{self.mount.to_string()}'
+            mount += ' '
         if isinstance(self.commands, list):
-            fp.write(f'RUN {json.dumps(self.commands)}\n')
+            fp.write(f'RUN {mount}{json.dumps(self.commands)}\n')
         else:
-            fp.write(f'RUN {self.commands}\n')
+            fp.write(f'RUN {mount}{self.commands}\n')
 
 @dataclass
 class Copy(BaseInstruction):
@@ -111,17 +130,17 @@ class Gen:
     def env(self, **args):
         self._instrs.append(Env(dict(**args)))
 
-    def run(self, commands: Union[List[str], str], shell: bool = True):
+    def run(self, commands: Union[List[str], str], mount: Union[List[Mount], Optional[Mount]] = None, shell: bool = True):
         if not shell:
             # RUN 'exec' form requires a list
             assert isinstance(commands, list)
-            self._instrs.append(Run(commands))
+            self._instrs.append(Run(commands, mount))
         else:
             if isinstance(commands, list):
-                self._instrs.append(Run(shellify(commands)))
+                self._instrs.append(Run(shellify(commands), mount))
             else:
                 assert isinstance(commands, str)
-                self._instrs.append(Run(commands))
+                self._instrs.append(Run(commands, mount))
 
     def run_exec(self, command: List[str]):
         '''RUN command but use an explicit list to perform an exec invocation without shell'''
